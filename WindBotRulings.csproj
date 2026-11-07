@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>WindBotRulings</AssemblyName>
+    <RootNamespace>WindBotRulings</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 카드 DB 리더 재사용 (WPF 의존 없음: BCL + Microsoft.Data.Sqlite 만 사용) -->
+    <Compile Include="..\WindBotAIEditor\Services\CardDatabase.cs" Link="CardDatabase.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- exe 옆에 문서도 함께 배포 (publish 폴더에도 복사) -->
+    <None Include="ARCHITECTURE.md" Condition="Exists('ARCHITECTURE.md')" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="README-DEV.md" Condition="Exists('README-DEV.md')" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
+
