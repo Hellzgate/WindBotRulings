@@ -21,8 +21,8 @@
 ## 2. 파일 구성
 | 파일 | 역할 |
 |---|---|
-| `Program.cs` | WinForms UI (검색·목록·탭 4개·툴바·다크모드·최근/즐겨찾기·`--selftest`/`--uicheck`) |
-| `RulingsCore.cs` | 데이터 계층 — 소스 체인(공식 Q&A·Yugipedia·YGOPRODeck·스크립트 사실), 캐시, HTML/위키 파서 |
+| `Program.cs` | WinForms UI (검색·목록·탭 4개·툴바·다크모드·최근/즐겨찾기) + CLI(`--selftest`/`--uicheck`/`--search`/`--screenshot`/`--version`) |
+| `RulingsCore.cs` | 데이터 계층 — 소스 체인(공식 Q&A·Yugipedia·YGOPRODeck·스크립트 사실), 캐시, HTML/위키 파서, **`RulingsHarvest`(수집 공용 절차)**, `EdoproLocator`(폴더 자동 탐색) |
 | `CardDatabase.cs` | cdb(SQLite) 읽기 — 원본은 `WindBotAIEditor\Services\CardDatabase.cs` (여기로 **복사**해 독립화) |
 | `WindBotRulings.csproj` | net8.0-windows / WinForms / 패키지 참조 |
 | `app.manifest` | Windows 10/11 호환 선언 |
@@ -74,12 +74,13 @@ dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=
 
 ## 5. 캐시/설정 (개인 로컬, 배포 금지)
 ```
-%LOCALAPPDATA%\WindBotAIEditor\rulings\
+<exe>\data\                      ← v1.2 부터 (쓰기 불가면 %LOCALAPPDATA%\WindBotRulings)
   <카드ID>.json         카드별 수집 결과(질문/답변/영문/일본어/메모)
   settings.json         EDOPro 경로 · 검색어 · 다크모드 · splitRatio · recent · favorites
   selftest-last.txt     마지막 --selftest 로그
   startup-error.txt     시작 실패 스택(있을 때만)
 ```
+> v1.1 이하의 `%LOCALAPPDATA%\WindBotAIEditor\rulings\*.json` 은 **첫 실행 때 자동 복사**된다.
 > ⚠ 수집한 **재정 텍스트**(공식=Konami, Yugipedia=CC BY-SA)는 **저작물**입니다.
 > 코드는 자유롭게 공유해도 되지만 **캐시 폴더는 배포물에 넣지 마세요.**
 
@@ -90,7 +91,7 @@ dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=
 |---|---|
 | **SplitContainer 최소크기/거리** | 생성자에서 설정하면 기본 폭 150px 라서 **예외 → 앱이 조용히 종료**. 반드시 `Shown` 이후(실제 크기 확정) + 폭 가드 |
 | **WinForms TextBox 줄바꿈** | `\n` 만으로는 안 됨 → `\r\n` 로 정규화해서 넣을 것 |
-| **WinExe 콘솔 출력** | 리다이렉트(`cmd /c … > file`)로만 캡처됨. PowerShell `*>` 는 안 잡힘 |
+| **WinExe 콘솔 출력** | 리다이렉트(`cmd /c … > file`)로만 확실히 캡처됨. PowerShell 변수 캡처(`$x = & exe`)는 큰 출력에서 비는 경우가 있다 |
 | **공식 페이지 파싱** | 라벨이 **영어**(`Question`/`Answer`)이고 `div#question_text`/`answer_text`. 일본어 `回答` 로 찾으면 못 찾음 |
 | **요청 예절** | 상세 조회는 120ms 간격, 카드당 최대 30건. 대량 크롤링 금지 |
 | **cdb** | `Microsoft.Data.Sqlite` 필요. 파일이 여러 개면 `CardDatabase.FindCandidates` 우선순위 사용 |

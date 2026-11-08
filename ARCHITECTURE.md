@@ -160,8 +160,21 @@ dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=
 | 1 | **파일 분할**(Program.cs 654줄 / RulingsCore.cs 457줄 → 클래스별 파일) | 시도했으나 괄호/문자열 처리 리스크로 **보류**. `#region` 으로 구역 표시해 둠. 분할 시 `--uicheck`/`--selftest` 필수 |
 | 2 | 번역 provider(§4-D) | 사용자 키(Papago/Azure) 또는 로컬 |
 | 3 | 공식 Q&A 상세 페이지의 **답변 링크**(본문 내 카드 링크) 파싱 | 현재 텍스트만 |
-| 4 | 최근/즐겨찾기 목록 **드래그 정렬·삭제** | 현재는 자동 기록만 |
+| 4 | ~~최근/즐겨찾기 목록 **삭제**~~ | **v1.2 완료** — 우클릭 메뉴(목록에서 삭제 / 모두 지우기) |
 | 5 | cdb가 여러 언어일 때 **한글명 우선순위** 설정 | `CardDatabase.FindCandidates` 사용 중 |
+| 6 | 탭 제목에 수집 건수 표시 | 공식 Q&A 는 `[공식 Q&A] N건` 본문에 있음 — 파싱해 제목에 넣으면 좋음 |
+| 7 | 번역된 재정(한국어) 요약 | 공식/영문을 요약 번역. 오역 위험이 있어 사용자 확인 후 |
+| 8 | 최근 목록 **드래그 정렬** | 삭제(v1.2)는 완료, 순서 변경은 미구현 |
+
+### 8-1. v1.2 에서 반영된 것 (2026-11-08)
+
+| 항목 | 내용 |
+|---|---|
+| 데이터 폴더 | `<exe>\data` 우선(포터블) · 폴백 `%LOCALAPPDATA%\WindBotRulings` · 예전 `WindBotAIEditor\rulings` 자동 이전 |
+| EDOPro 폴더 | 설정이 비었거나 사라지면 `D:\edopro`·`C:\ProjectIgnis` … 자동 탐색(`EdoproLocator.Guess`) |
+| CLI | `--search <ID\|이름> [--fresh] [--json] [--root 폴더]` · `--version` · `--help` |
+| 수집 절차 공용화 | `RulingsHarvest.FetchAsync` — UI/CLI 가 같은 순서(사실→영문명→Yugipedia→cid→일본어 키워드) |
+| UI | **[복사]**(현재 탭 클립보드) · 우클릭 메뉴(즐겨찾기 토글/ID 복사/목록 삭제/모두 지우기) · **Ctrl+F** 검색 포커스 · **F5** 수집 · 툴바를 `FlowLayoutPanel` 로(좁은 창에서도 안 겹침) |
 
 ---
 

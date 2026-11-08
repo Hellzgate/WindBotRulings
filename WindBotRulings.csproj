@@ -9,7 +9,8 @@
     <AssemblyName>WindBotRulings</AssemblyName>
     <RootNamespace>WindBotRulings</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
+    <FileVersion>1.2.0.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>

@@ -29,18 +29,78 @@ namespace WindBotRulings
         public string NameJa { get; set; } = "";
     }
 
-    /// <summary>%LOCALAPPDATA%\WindBotAIEditor\rulings\&lt;id&gt;.json 캐시</summary>
+    /// <summary>
+    /// 재정 캐시/설정 폴더 (2026-11-08 v1.2: 독립 앱 폴더로 분리).
+    ///   ① &lt;exe&gt;\data  (포터블 — 폴더째 복사해도 설정·캐시가 따라온다)
+    ///   ② 쓰기 불가면 %LOCALAPPDATA%\WindBotRulings
+    ///   · 예전 위치(%LOCALAPPDATA%\WindBotAIEditor\rulings)의 json 은 **첫 실행 때 복사**해 온다.
+    /// </summary>
     public static class RulingsStore
     {
+        private static string _dir;
+
         public static string Dir
         {
             get
             {
-                var d = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                                     "WindBotAIEditor", "rulings");
-                Directory.CreateDirectory(d);
-                return d;
+                if (_dir != null) return _dir;
+                _dir = ResolveDir();
+                return _dir;
             }
+        }
+
+        private static string ResolveDir()
+        {
+            string preferred = null;
+            try { preferred = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data"); } catch { }
+
+            string dir;
+            if (preferred != null && CanWrite(preferred)) dir = preferred;
+            else
+            {
+                var b = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (string.IsNullOrEmpty(b)) b = Path.GetTempPath();
+                dir = Path.Combine(b, "WindBotRulings");
+            }
+            try { Directory.CreateDirectory(dir); } catch { }
+            MigrateOld(dir);
+            return dir;
+        }
+
+        private static bool CanWrite(string dir)
+        {
+            try
+            {
+                Directory.CreateDirectory(dir);
+                string probe = Path.Combine(dir, ".wtest");
+                File.WriteAllText(probe, "x");
+                File.Delete(probe);
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>예전(%LOCALAPPDATA%\WindBotAIEditor\rulings) json 을 새 폴더로 1회 복사.</summary>
+        private static void MigrateOld(string newDir)
+        {
+            try
+            {
+                var lad = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (string.IsNullOrEmpty(lad)) return;
+                string old = Path.Combine(lad, "WindBotAIEditor", "rulings");
+                if (!Directory.Exists(old)) return;
+                if (string.Equals(Path.GetFullPath(old), Path.GetFullPath(newDir), StringComparison.OrdinalIgnoreCase)) return;
+
+                foreach (string f in Directory.GetFiles(old, "*.json"))
+                {
+                    string dst = Path.Combine(newDir, Path.GetFileName(f));
+                    if (!File.Exists(dst)) File.Copy(f, dst, false);
+                }
+                string last = Path.Combine(old, "selftest-last.txt");
+                string lastDst = Path.Combine(newDir, "selftest-last.txt");
+                if (File.Exists(last) && !File.Exists(lastDst)) File.Copy(last, lastDst, false);
+            }
+            catch { }
         }
 
         public static string PathOf(int id) => Path.Combine(Dir, id + ".json");
@@ -459,6 +519,84 @@ namespace WindBotRulings
             return sb.ToString();
         }
         #endregion
+    }
+
+    /// <summary>EDOPro 설치 폴더 추정 (설정이 비었거나 사라졌을 때).</summary>
+    public static class EdoproLocator
+    {
+        public static string Guess()
+        {
+            string[] candidates =
+            {
+                @"D:\edopro", @"C:\ProjectIgnis", @"D:\ProjectIgnis", @"C:\edopro", @"D:\EDOPro"
+            };
+            foreach (string c in candidates)
+            {
+                try
+                {
+                    if (Directory.Exists(Path.Combine(c, "expansions")) || Directory.Exists(Path.Combine(c, "WindBot")))
+                        return c;
+                }
+                catch { }
+            }
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// 한 카드의 재정 자료를 **수집해 채우는 공용 절차** (2026-11-08 v1.2).
+    ///   UI [수집] · CLI `--search` · `--selftest` 가 같은 순서를 쓰도록 한 곳에 둔다.
+    ///   ① 스크립트 사실(오프라인) → ② 영문명 → ③ Yugipedia → ④ 공식 Q&amp;A(cid) → ⑤ 일본어명 키워드 검색
+    /// </summary>
+    public static class RulingsHarvest
+    {
+        public static async Task<bool> FetchAsync(RulingsData d, string edoproRoot, Action<string> report)
+        {
+            if (d == null) return false;
+            Action<string> L = report ?? delegate (string s) { };
+
+            if (string.IsNullOrWhiteSpace(d.FactsText)) d.FactsText = ScriptFacts.Build(edoproRoot, d.Id);
+
+            L("영문명 확인 중…");
+            if (string.IsNullOrWhiteSpace(d.NameEn))
+                d.NameEn = await RulingsFetcher.ResolveEnglishNameAsync(d.Id);
+
+            L("Yugipedia 재정 가져오는 중…");
+            var (wikiText, wikiUrl, wikiRaw, cids) = await RulingsFetcher.FetchYugipediaAsync(d.NameEn);
+            if (!string.IsNullOrWhiteSpace(wikiText))
+            {
+                d.YugipediaText = wikiText;
+                d.YugipediaUrl = wikiUrl;
+            }
+
+            d.OfficialCids = cids ?? new List<int>();
+            if (d.OfficialCids.Count > 0)
+            {
+                L("공식 Q&A 목록 가져오는 중…");
+                var (listText, listUrl, qCount) = await RulingsFetcher.FetchOfficialAllAsync(d.OfficialCids[0], null);
+                d.OfficialUrl = listUrl;
+                if (!string.IsNullOrWhiteSpace(listText)) d.OfficialText = listText;
+                L("공식 Q&A " + qCount + "건 수집 (본문 포함)");
+            }
+
+            // cid 로 못 찾았으면 **일본어 카드명으로 공식 Q&A 키워드 검색**(ope=2) 으로 재시도
+            if (string.IsNullOrWhiteSpace(d.OfficialText) || !d.OfficialText.Contains("[공식 Q&A]"))
+            {
+                L("일본어 카드명 확인 중…");
+                if (string.IsNullOrWhiteSpace(d.NameJa))
+                    d.NameJa = await RulingsFetcher.ResolveJapaneseNameAsync(d.NameEn);
+                if (!string.IsNullOrWhiteSpace(d.NameJa))
+                {
+                    L("공식 Q&A 키워드 검색: " + d.NameJa);
+                    var (t2, u2, c2) = await RulingsFetcher.FetchOfficialAllAsync(0, d.NameJa);
+                    if (c2 > 0) { d.OfficialText = t2; d.OfficialUrl = u2; }
+                    L("공식 Q&A " + c2 + "건 (키워드 검색)");
+                }
+            }
+
+            d.FetchedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+            return !string.IsNullOrWhiteSpace(d.YugipediaText) || !string.IsNullOrWhiteSpace(d.OfficialText);
+        }
     }
 }
 

@@ -23,10 +23,26 @@ namespace WindBotRulings
                 Environment.ExitCode = SelfTest.Run(args[1], args[2]);
                 return;
             }
+            // 카드 하나의 재정을 **텍스트로** 출력 (v1.2):  --search <ID|이름> [--fresh] [--json] [--root <폴더>]
+            if (args != null && args.Length >= 2 && args[0] == "--search")
+            {
+                Environment.ExitCode = SearchCli(args[1], args);
+                return;
+            }
             // 화면을 PNG 로 저장(창을 화면 밖에 띄웠다 바로 닫는다) — 디자인 확인용
             if (args != null && args.Length >= 2 && args[0] == "--screenshot")
             {
                 Environment.ExitCode = Shot(args[1], args);
+                return;
+            }
+            if (args != null && args.Length >= 1 && (args[0] == "--version" || args[0] == "-v"))
+            {
+                Console.WriteLine("WindBotRulings " + VersionText);
+                return;
+            }
+            if (args != null && args.Length >= 1 && (args[0] == "--help" || args[0] == "-h" || args[0] == "/?"))
+            {
+                Console.WriteLine(UsageText());
                 return;
             }
 
@@ -37,6 +53,7 @@ namespace WindBotRulings
                 {
                     using var f = new MainForm();
                     Console.WriteLine("UICHECK OK");
+                    Console.WriteLine("  " + f.UiCheckSummary());
                     Environment.ExitCode = 0;
                 }
                 catch (Exception ex)
@@ -59,8 +76,135 @@ namespace WindBotRulings
             {
                 LogCrash(ex);
                 MessageBox.Show("시작 중 오류가 발생했습니다.\r\n\r\n" + ex.Message +
-                                "\r\n\r\n로그: %LOCALAPPDATA%\\WindBotAIEditor\\rulings\\startup-error.txt",
+                                "\r\n\r\n로그: " + Path.Combine(RulingsStore.Dir, "startup-error.txt"),
                                 "WindBot 재정 검색기", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        public static string VersionText
+        {
+            get
+            {
+                try
+                {
+                    var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+                    if (v != null) return v.Major + "." + v.Minor + "." + v.Build;
+                }
+                catch { }
+                return "1.2.0";
+            }
+        }
+
+        private static string UsageText()
+        {
+            return string.Join("\r\n", new[]
+            {
+                "WindBot 재정 검색기 v" + VersionText,
+                "",
+                "사용법:",
+                "  WindBotRulings.exe                          (창 열기)",
+                "  WindBotRulings.exe --search <ID|이름> [옵션] (콘솔로 재정 출력)",
+                "  WindBotRulings.exe --selftest <EDOPro폴더> <카드ID>",
+                "  WindBotRulings.exe --uicheck                (창 없이 폼 검사)",
+                "",
+                "--search 옵션:",
+                "  --fresh          온라인 수집을 새로 실행(공식 Q&A·Yugipedia)",
+                "  --json           JSON 으로 출력",
+                "  --root <폴더>    EDOPro 폴더 지정(기본: 설정 → 자동 탐색)",
+                "",
+                "데이터 폴더: " + RulingsStore.Dir
+            });
+        }
+
+        private static string ArgValue(string[] args, string name)
+        {
+            for (int i = 0; i + 1 < args.Length; i++)
+                if (args[i] == name) return args[i + 1];
+            return null;
+        }
+
+        /// <summary>--search: 로컬 캐시(+선택적 온라인 수집)를 텍스트/JSON 으로 출력한다.</summary>
+        private static int SearchCli(string query, string[] args)
+        {
+            try
+            {
+                string root = ArgValue(args, "--root");
+                if (string.IsNullOrEmpty(root)) root = Settings.Load().EdoproRoot;
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) root = EdoproLocator.Guess();
+                if (string.IsNullOrEmpty(root))
+                {
+                    Console.WriteLine("ERROR: EDOPro 폴더를 찾지 못했습니다 (--root <폴더> 로 지정).");
+                    return 2;
+                }
+
+                var wb = Path.Combine(root, "WindBot");
+                var paths = CardDatabase.FindCandidates(Directory.Exists(wb) ? wb : root);
+                CardDatabase.Instance.OpenMany(paths);
+
+                int id;
+                if (!int.TryParse((query ?? "").Trim(), out id))
+                {
+                    var hits = CardDatabase.Instance.Search((query ?? "").Trim(), 20);
+                    if (hits.Count == 0)
+                    {
+                        Console.WriteLine("ERROR: 카드를 찾지 못했습니다: " + query);
+                        return 3;
+                    }
+                    id = hits[0].Id;
+                    if (hits.Count > 1)
+                    {
+                        Console.WriteLine("검색 결과 " + hits.Count + "건 — 첫 항목 사용: " + id);
+                        foreach (var h in hits.Take(8)) Console.WriteLine("  " + h.Id + "  " + h.Name);
+                        Console.WriteLine();
+                    }
+                }
+
+                var d = RulingsStore.Load(id);
+                d.Id = id;
+                if (string.IsNullOrWhiteSpace(d.NameKr)) d.NameKr = CardDatabase.Instance.NameOf(id);
+
+                bool fresh = Array.IndexOf(args, "--fresh") >= 0;
+                if (fresh)
+                {
+                    RulingsHarvest.FetchAsync(d, root, delegate (string s) { Console.WriteLine("  · " + s); })
+                        .GetAwaiter().GetResult();
+                    RulingsStore.Save(d);
+                }
+                else if (string.IsNullOrWhiteSpace(d.FactsText))
+                {
+                    d.FactsText = ScriptFacts.Build(root, id);
+                }
+
+                if (Array.IndexOf(args, "--json") >= 0)
+                {
+                    Console.WriteLine(JsonSerializer.Serialize(d, new JsonSerializerOptions { WriteIndented = true }));
+                    return 0;
+                }
+
+                Console.WriteLine("=== " + id + " · " + d.NameKr
+                    + (string.IsNullOrWhiteSpace(d.NameEn) ? "" : " / " + d.NameEn) + " ===");
+                if (!string.IsNullOrWhiteSpace(d.NameJa)) Console.WriteLine("일본어명: " + d.NameJa);
+                Console.WriteLine("수집: " + (string.IsNullOrWhiteSpace(d.FetchedAt) ? "(없음 — --fresh 로 수집)" : d.FetchedAt));
+                Console.WriteLine();
+                Console.WriteLine("[요약 · 스크립트 사실]");
+                Console.WriteLine(string.IsNullOrWhiteSpace(d.FactsText) ? "(없음)" : d.FactsText.Trim());
+                Console.WriteLine();
+                Console.WriteLine("[공식 Q&A]");
+                Console.WriteLine(string.IsNullOrWhiteSpace(d.OfficialText) ? "(없음)" : d.OfficialText.Trim());
+                if (!string.IsNullOrWhiteSpace(d.OfficialUrl)) Console.WriteLine("원문: " + d.OfficialUrl);
+                Console.WriteLine();
+                Console.WriteLine("[Yugipedia]");
+                Console.WriteLine(string.IsNullOrWhiteSpace(d.YugipediaText) ? "(없음)" : d.YugipediaText.Trim());
+                if (!string.IsNullOrWhiteSpace(d.YugipediaUrl)) Console.WriteLine("원문: " + d.YugipediaUrl);
+                Console.WriteLine();
+                Console.WriteLine("[내 메모]");
+                Console.WriteLine(string.IsNullOrWhiteSpace(d.Memo) ? "(없음)" : d.Memo.Trim());
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("ERROR: " + ex.Message);
+                return 9;
             }
         }
 
@@ -165,9 +309,11 @@ namespace WindBotRulings
         private TabControl _tabs;
         private TextBox _txtFacts, _txtOfficial, _txtYugi, _txtMemo;
         private Label _lblStatus, _lblRoot, _lblSearch;
-        private Button _btnFetch, _btnBrowse, _btnOpen, _btnSearch, _btnOpenSrc, _btnSaveMemo, _btnCache, _btnDark, _btnFav;
+        private Button _btnFetch, _btnBrowse, _btnOpen, _btnSearch, _btnOpenSrc, _btnSaveMemo, _btnCache, _btnDark, _btnFav, _btnCopy;
         private ComboBox _cmbMode;   // 검색 / 최근 / 즐겨찾기
-        private Panel _top, _bar;
+        private Panel _top;
+        private FlowLayoutPanel _bar;
+        private ContextMenuStrip _menu;
         private SplitContainer _split;
         private StatusStrip _bottom;
         private ToolStripStatusLabel _strip;
@@ -179,7 +325,7 @@ namespace WindBotRulings
 
         public MainForm()
         {
-            Text = "WindBot 재정 검색기";
+            Text = "WindBot 재정 검색기  v" + Program.VersionText;
             Width = 1080; Height = 780;
             MinimumSize = new Size(920, 620);
             StartPosition = FormStartPosition.CenterScreen;
@@ -276,13 +422,22 @@ namespace WindBotRulings
             _tabs.TabPages.AddRange(new[] { pFacts, pOff, pYugi, pMemo });
             WireOwnerDraw();
 
-            _bar = new Panel { Dock = DockStyle.Top, Height = 34, Padding = new Padding(4, 3, 4, 3) };
-            _btnFetch = new Button { Text = "온라인 수집 (공식→Yugipedia)", Left = 4, Top = 3, Width = 210, Height = 26 };
-            _btnOpenSrc = new Button { Text = "원문 열기", Left = 222, Top = 3, Width = 90, Height = 26 };
-            _btnSaveMemo = new Button { Text = "메모 저장", Left = 318, Top = 3, Width = 90, Height = 26 };
-            _btnCache = new Button { Text = "캐시 폴더", Left = 414, Top = 3, Width = 90, Height = 26 };
-            _btnFav = new Button { Text = "☆ 즐겨찾기", Left = 510, Top = 3, Width = 104, Height = 26 };
-            _bar.Controls.AddRange(new Control[] { _btnFetch, _btnOpenSrc, _btnSaveMemo, _btnCache, _btnFav });
+            _bar = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 36,
+                Padding = new Padding(4, 4, 4, 4),
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = Color.Transparent
+            };
+            _btnFetch = BarButton("온라인 수집", 118);
+            _btnOpenSrc = BarButton("원문 열기", 86);
+            _btnCopy = BarButton("복사", 62);
+            _btnSaveMemo = BarButton("메모 저장", 90);
+            _btnCache = BarButton("캐시 폴더", 90);
+            _btnFav = BarButton("☆ 즐겨찾기", 104);
+            _bar.Controls.AddRange(new Control[] { _btnFetch, _btnOpenSrc, _btnCopy, _btnSaveMemo, _btnCache, _btnFav });
 
             _split.Panel2.Controls.Add(_tabs);
             _split.Panel2.Controls.Add(_bar);
@@ -310,6 +465,7 @@ namespace WindBotRulings
             _list.SelectedIndexChanged += delegate { if (!_suppressSelect) ShowSelected(); };
             _list.DoubleClick += delegate { DoSearch(); };
             _btnFetch.Click += async delegate { await FetchAsync(); };
+            _btnCopy.Click += delegate { CopyCurrentTab(); };
             _btnSaveMemo.Click += delegate { SaveMemo(); };
             _btnCache.Click += delegate { try { Process.Start(new ProcessStartInfo { FileName = RulingsStore.Dir, UseShellExecute = true }); } catch { } };
             _btnOpenSrc.Click += delegate
@@ -327,13 +483,74 @@ namespace WindBotRulings
                 _cfg.Save();
             };
 
+            // ── 단축키 / 목록 우클릭 메뉴 (v1.2) ──
+            KeyPreview = true;
+            KeyDown += delegate (object s, KeyEventArgs e)
+            {
+                if (e.Control && e.KeyCode == Keys.F)
+                {
+                    e.SuppressKeyPress = true;
+                    _txtSearch.Focus();
+                    _txtSearch.SelectAll();
+                }
+                else if (e.KeyCode == Keys.F5 && _cur != null)
+                {
+                    e.SuppressKeyPress = true;
+                    var ignored = FetchAsync();
+                }
+            };
+
+            _menu = new ContextMenuStrip();
+            var miFav = new ToolStripMenuItem("즐겨찾기 추가/해제");
+            miFav.Click += delegate { ToggleFavorite(); };
+            var miCopyId = new ToolStripMenuItem("카드 ID 복사");
+            miCopyId.Click += delegate
+            {
+                if (_cur == null) return;
+                try { Clipboard.SetText(_cur.Id.ToString()); Status("복사: " + _cur.Id); } catch { }
+            };
+            var miDel = new ToolStripMenuItem("목록에서 삭제");
+            miDel.Click += delegate { RemoveFromCurrentList(); };
+            var miClear = new ToolStripMenuItem("목록 모두 지우기");
+            miClear.Click += delegate { ClearCurrentList(); };
+            _menu.Items.AddRange(new ToolStripItem[] { miFav, miCopyId, new ToolStripSeparator(), miDel, miClear });
+            _menu.Opening += delegate
+            {
+                bool editable = _cmbMode.SelectedIndex == 1 || _cmbMode.SelectedIndex == 2;
+                miDel.Enabled = editable && _list.SelectedItems.Count > 0;
+                miClear.Enabled = editable && _list.Items.Count > 0;
+            };
+            _list.MouseUp += delegate (object s, MouseEventArgs e)
+            {
+                if (e.Button != MouseButtons.Right) return;
+                var hit = _list.GetItemAt(e.X, e.Y);
+                if (hit != null) { hit.Selected = true; _menu.Show(_list, e.Location); }
+            };
+
             Shown += delegate
             {
                 ApplyTheme();
                 if (_shot) return;      // 스크린샷 모드: 자동 DB 열기/검색(=온라인 수집) 금지 — 멈춤 방지
-                if (Directory.Exists(_cfg.EdoproRoot)) OpenDb();
+                string root = _cfg.EdoproRoot;
+                if (!Directory.Exists(root))
+                {
+                    string guess = EdoproLocator.Guess();
+                    if (guess.Length > 0) { _txtRoot.Text = guess; root = guess; }
+                }
+                if (Directory.Exists(root)) OpenDb();
                 if (!string.IsNullOrWhiteSpace(_cfg.LastSearch)) DoSearch();
                 else if (_cfg.Recent.Count > 0) { _loading = true; _cmbMode.SelectedIndex = 1; _loading = false; ReloadList(); }
+            };
+        }
+
+        private static Button BarButton(string text, int width)
+        {
+            return new Button
+            {
+                Text = text,
+                Width = width,
+                Height = 26,
+                Margin = new Padding(0, 0, 6, 0)
             };
         }
 
@@ -703,6 +920,75 @@ namespace WindBotRulings
             SetText(_txtFacts, ""); SetText(_txtOfficial, ""); SetText(_txtYugi, ""); SetText(_txtMemo, "");
         }
 
+        /// <summary>현재 탭 내용을 클립보드로 복사 (v1.2 — 카톡/문서에 붙여넣기용).</summary>
+        private void CopyCurrentTab()
+        {
+            string text = "";
+            int i = _tabs.SelectedIndex;
+            if (i == 0) text = _txtFacts.Text;
+            else if (i == 1) text = _txtOfficial.Text;
+            else if (i == 2) text = _txtYugi.Text;
+            else text = _txtMemo.Text;
+            if (string.IsNullOrWhiteSpace(text)) { Status("복사할 내용이 없습니다"); return; }
+            try
+            {
+                Clipboard.SetText(text);
+                Status("복사: " + _tabs.TabPages[i].Text + " (" + text.Length + "자)");
+            }
+            catch (Exception ex) { Status("복사 실패: " + ex.Message); }
+        }
+
+        /// <summary>최근/즐겨찾기 목록에서 선택 항목 삭제 (v1.2).</summary>
+        private void RemoveFromCurrentList()
+        {
+            int mode = _cmbMode.SelectedIndex;
+            if (mode != 1 && mode != 2) { Status("검색 결과에서는 삭제할 수 없습니다 (최근/즐겨찾기만)"); return; }
+            if (_list.SelectedItems.Count == 0) return;
+            int id = (int)_list.SelectedItems[0].Tag;
+            var target = mode == 1 ? _cfg.Recent : _cfg.Favorites;
+            target.Remove(id);
+            _cfg.Save();
+            ReloadList();
+            Status("목록에서 삭제: " + id);
+        }
+
+        private void ClearCurrentList()
+        {
+            int mode = _cmbMode.SelectedIndex;
+            if (mode != 1 && mode != 2) { Status("최근/즐겨찾기 목록에서만 지울 수 있습니다"); return; }
+            string name = mode == 1 ? "최근 본 카드" : "즐겨찾기";
+            if (MessageBox.Show(name + " 목록을 모두 지울까요?", "목록 지우기",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            if (mode == 1) _cfg.Recent.Clear(); else _cfg.Favorites.Clear();
+            _cfg.Save();
+            ReloadList();
+            Status(name + " 목록을 지웠습니다");
+        }
+
+        /// <summary>--uicheck: 컨트롤/배치/기능 요약 (v1.2).</summary>
+        public string UiCheckSummary()
+        {
+            int n = 0;
+            CountControls(this, ref n);
+            var sb = new StringBuilder();
+            sb.AppendFormat("version={0} controls={1} size={2}x{3}",
+                Program.VersionText, n, ClientSize.Width, ClientSize.Height);
+            sb.AppendFormat(" tabs={0} modes={1}", _tabs.TabPages.Count, _cmbMode.Items.Count);
+            sb.AppendFormat(" copy={0} bar={1} fav={2}",
+                _btnCopy != null ? "OK" : "no", _bar.Controls.Count, _cfg.Favorites.Count);
+            sb.AppendFormat(" data={0}", RulingsStore.Dir);
+            return sb.ToString();
+        }
+
+        private static void CountControls(Control parent, ref int n)
+        {
+            foreach (Control c in parent.Controls)
+            {
+                n++;
+                if (c.HasChildren) CountControls(c, ref n);
+            }
+        }
+
         private static string BuildOfficialText(RulingsData d)
         {
             if (!string.IsNullOrWhiteSpace(d.OfficialText) && d.OfficialText.Contains("[공식 Q&A]"))
@@ -771,49 +1057,12 @@ namespace WindBotRulings
             try
             {
                 _btnFetch.Enabled = false;
-                Status("영문명 확인 중…");
-                if (string.IsNullOrWhiteSpace(_cur.NameEn))
-                    _cur.NameEn = await RulingsFetcher.ResolveEnglishNameAsync(_cur.Id);
+                bool any = await RulingsHarvest.FetchAsync(_cur, EdoproRoot, s => Status(s));
 
-                Status("Yugipedia 재정 가져오는 중…");
-                var (wikiText, wikiUrl, wikiRaw, cids) = await RulingsFetcher.FetchYugipediaAsync(_cur.NameEn);
-                if (!string.IsNullOrWhiteSpace(wikiText))
-                {
-                    _cur.YugipediaText = wikiText;
-                    _cur.YugipediaUrl = wikiUrl;
-                }
-
-                _cur.OfficialCids = cids ?? new List<int>();
-                if (_cur.OfficialCids.Count > 0)
-                {
-                    Status("공식 Q&A 목록 가져오는 중…");
-                    var (listText, listUrl, qCount) = await RulingsFetcher.FetchOfficialAllAsync(_cur.OfficialCids[0], null);
-                    _cur.OfficialUrl = listUrl;
-                    if (!string.IsNullOrWhiteSpace(listText)) _cur.OfficialText = listText;
-                    Status("공식 Q&A " + qCount + "건 수집 (본문 포함)");
-                }
-
-                // cid 로 못 찾았으면 **일본어 카드명으로 공식 Q&A 키워드 검색**(ope=2) 으로 재시도
-                if (string.IsNullOrWhiteSpace(_cur.OfficialText) || !_cur.OfficialText.Contains("[공식 Q&A]"))
-                {
-                    Status("일본어 카드명 확인 중…");
-                    if (string.IsNullOrWhiteSpace(_cur.NameJa))
-                        _cur.NameJa = await RulingsFetcher.ResolveJapaneseNameAsync(_cur.NameEn);
-                    if (!string.IsNullOrWhiteSpace(_cur.NameJa))
-                    {
-                        Status("공식 Q&A 키워드 검색: " + _cur.NameJa);
-                        var (t2, u2, c2) = await RulingsFetcher.FetchOfficialAllAsync(0, _cur.NameJa);
-                        if (c2 > 0) { _cur.OfficialText = t2; _cur.OfficialUrl = u2; }
-                        Status("공식 Q&A " + c2 + "건 (키워드 검색)");
-                    }
-                }
-
-                _cur.FetchedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
                 _cur.Memo = _txtMemo.Text;
                 RulingsStore.Save(_cur);
                 ShowSelected();
 
-                bool any = !string.IsNullOrWhiteSpace(_cur.YugipediaText) || _cur.OfficialCids.Count > 0;
                 Status(any
                     ? "수집 완료 · " + _cur.FetchedAt + (_cur.OfficialCids.Count > 0 ? " (cid " + _cur.OfficialCids.Count + "건)" : "")
                     : "수집 실패 — 영문명/페이지 없음 (내 메모를 사용하세요)");
