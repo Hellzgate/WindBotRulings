@@ -6,6 +6,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
+    <ApplicationIcon>app.ico</ApplicationIcon>
     <AssemblyName>WindBotRulings</AssemblyName>
     <RootNamespace>WindBotRulings</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
