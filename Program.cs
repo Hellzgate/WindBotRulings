@@ -361,7 +361,8 @@ namespace WindBotRulings
             _txtRoot.Margin = new Padding(0, 4, 6, 4);
             _btnBrowse = new Button { Text = "폴더 선택", Dock = DockStyle.Fill, Margin = new Padding(0, 3, 6, 3) };
             _btnOpen = new Button { Text = "카드 DB 열기", Dock = DockStyle.Fill, Margin = new Padding(0, 3, 6, 3) };
-            _btnDark = new Button { Text = "다크 모드", Dock = DockStyle.Fill, Margin = new Padding(0, 3, 0, 3) };
+            _btnDark = new Button { Text = "다크 모드", Dock = DockStyle.Fill, Margin = new Padding(0, 3, 0, 3), FlatStyle = FlatStyle.Flat };
+            _btnDark.UseVisualStyleBackColor = false;
 
             _lblSearch = Ui.Text("카드 검색", SystemColors.ControlText);
             _lblSearch.Dock = DockStyle.Fill;
@@ -399,6 +400,7 @@ namespace WindBotRulings
             _list.Columns.Add("카드명", 190);
             _list.Columns.Add("구분", 300);
             _list.OwnerDraw = true;                 // 다크 모드에서 기본 흰 헤더/행 제거
+            _list.HeaderStyle = ColumnHeaderStyle.Nonclickable;   // 시스템 헤더가 우리 헤더 위에 겹쳐 그려지지 않게
             _emptyHint = Ui.Text("EDOPro 폴더를 선택하고 [카드 DB 열기] 를 누르면 카드가 나옵니다.", Color.DimGray);
             _emptyHint.Dock = DockStyle.Fill;
             _emptyHint.TextAlign = ContentAlignment.MiddleCenter;
@@ -610,6 +612,7 @@ namespace WindBotRulings
             BackColor = p.Bg;
             ForeColor = p.Fg;
             _top.BackColor = p.Bg;
+            if (_top.Controls.Count > 0) _top.Controls[0].BackColor = p.Bg;   // 투명 부모면 렌더러가 흰색으로 칠하는 경우가 있다
             _bar.BackColor = p.Bg;
             _lblRoot.ForeColor = p.Fg;
             _lblSearch.ForeColor = p.Fg;
@@ -618,8 +621,9 @@ namespace WindBotRulings
             // 주 동작은 강조, 나머지는 보조
             p.StyleButton(_btnFetch, true);
             p.StyleButton(_btnSearch, true);
-            foreach (var b in new[] { _btnBrowse, _btnOpen, _btnDark, _btnOpenSrc, _btnSaveMemo, _btnCache, _btnFav })
+            foreach (var b in new[] { _btnBrowse, _btnOpen, _btnDark, _btnOpenSrc, _btnCopy, _btnSaveMemo, _btnCache, _btnFav })
                 p.StyleButton(b);
+
 
             _txtRoot.BackColor = p.Bg2; _txtRoot.ForeColor = p.Fg;
             _txtSearch.BackColor = p.Bg2; _txtSearch.ForeColor = p.Fg;
@@ -628,6 +632,7 @@ namespace WindBotRulings
             _list.BackColor = p.Bg2; _list.ForeColor = p.Fg;
 
             _split.BackColor = p.Border;   // 스플리터(가운데 선)가 보이도록
+            _split.SplitterWidth = 4;
             _split.Panel1.BackColor = p.Bg;
             _split.Panel2.BackColor = p.Bg;
 
@@ -707,11 +712,11 @@ namespace WindBotRulings
         {
             if (_list == null || _list.Columns.Count < 3) return;
             int w = Math.Max(240, _split.Panel1.ClientSize.Width - 4);
-            int id = 90;
-            int name = (int)(w * 0.34);
+            int id = 78;
+            int name = (int)(w * 0.30);
             _list.Columns[0].Width = id;
             _list.Columns[1].Width = name;
-            _list.Columns[2].Width = Math.Max(140, w - id - name - 22);
+            _list.Columns[2].Width = Math.Max(150, w - id - name - 20);
         }
 
         /// <summary>목록이 비었을 때만 안내 문구를 보여준다.</summary>

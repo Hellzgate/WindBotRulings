@@ -52,6 +52,8 @@ namespace WindBotRulings
         /// <summary>버튼을 팔레트에 맞춘다(테마 전환 때마다 호출).</summary>
         public void StyleButton(Button b, bool primary = false)
         {
+            /* UseVisualStyleBackColor 를 먼저 끄지 않으면 BackColor 가 시스템 색으로 되돌아간다 */
+            b.UseVisualStyleBackColor = false;
             b.FlatStyle = FlatStyle.Flat;
             b.FlatAppearance.BorderSize = 1;
             b.FlatAppearance.BorderColor = primary ? Accent : Border;
@@ -60,7 +62,6 @@ namespace WindBotRulings
             b.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(108, 178, 236) : BtnHi;
             b.FlatAppearance.MouseDownBackColor = primary ? Accent : Btn;
             b.Cursor = Cursors.Hand;
-            b.UseVisualStyleBackColor = false;
         }
     }
 
